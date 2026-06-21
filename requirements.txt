@@ -1,0 +1,12 @@
+PyQt6
+opencv-python
+openwakeword
+faster-whisper
+pyaudio
+numpy
+webrtcvad
+fastapi
+uvicorn
+ultralytics
+face_recognition
+sse-starlette

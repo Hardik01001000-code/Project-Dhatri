@@ -1,0 +1,32 @@
+# Python environments and caches
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+
+# AI and local system caches
+brain/
+embeddings_cache/
+
+# Large Model weights and checkpoints
+listen_microservice/models/
+speak_microservice/checkpoints_v2/
+*.pth
+*.pt
+*.bin
+*.onnx
+*.safetensors
+*.h5
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
