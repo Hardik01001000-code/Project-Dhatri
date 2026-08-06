@@ -3,14 +3,14 @@ import sys
 
 def main():
     os.makedirs("./models", exist_ok=True)
-    print("Downloading YOLO26n model...")
+    print("Downloading YOLO11s model for high accuracy...")
     try:
         from ultralytics import YOLO
         # This automatically downloads the weights from Ultralytics servers
-        model = YOLO("./models/yolo26n.pt")
-        print("Successfully downloaded yolo26n.pt to ./models/!")
+        model = YOLO("./models/yolo11s.pt")
+        print("Successfully downloaded yolo11s.pt to ./models/!")
     except Exception as e:
-        print(f"Failed to download YOLO26n model: {e}")
+        print(f"Failed to download YOLO11s model: {e}")
         sys.exit(1)
         
     print("Pre-downloading/verifying face_recognition assets (if any are lazily loaded)...")

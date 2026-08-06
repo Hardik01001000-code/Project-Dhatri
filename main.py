@@ -19,7 +19,8 @@ import subprocess
 try:
     test_code = "import torch; torch.matmul(torch.randn(2, 2, device='cuda'), torch.randn(2, 2, device='cuda'))"
     # Suppress output to keep console clean
-    result = subprocess.run([sys.executable, "-c", test_code], capture_output=True, timeout=5)
+    print("[Dhatri Setup] Testing CUDA environment... (This may take up to 30 seconds on the first run)")
+    result = subprocess.run([sys.executable, "-c", test_code], capture_output=True, timeout=30)
     if result.returncode != 0:
         print(f"[Dhatri Setup] Warning: CUDA environment is broken or missing DLLs. Falling back to CPU.")
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
