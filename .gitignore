@@ -27,6 +27,22 @@ speak_microservice/checkpoints_v2/
 .vscode/
 *.swp
 
+# Personal data — NEVER commit these
+vision_microservice/known_faces/
+vision_microservice/unknown_faces/
+
+# Audio recordings
+*.wav
+*.mp3
+*.flac
+
+# Image files (prevent accidental commits)
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+
 # OS generated files
 .DS_Store
 Thumbs.db
