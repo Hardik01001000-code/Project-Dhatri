@@ -65,11 +65,18 @@ Project-Dhatri/
 ├── requirements.txt                 # Root Python dependencies
 ├── README.md                        # This file
 │
-├── gui/                             # PyQt6 Desktop Interface
-│   ├── main_window.py               # Main chat window with controls
-│   ├── vision_window.py             # Live camera feed window
+├── gui/                             # PyQt6 Modern Desktop Interface
+│   ├── main_window.py               # Main window orchestrator
+│   ├── styles.py                    # Cyber-glass dark design system
+│   ├── vision_window.py             # Standalone detachable Vision window
 │   ├── components/
-│   │   └── visualizer_overlay.py    # Animated audio visualizer
+│   │   ├── ai_orb.py                # Futuristic animated AI Orb visualizer
+│   │   ├── chat_view.py             # Rich chat canvas with message cards & suggestions
+│   │   ├── input_bar.py             # Floating capsule input bar with auto-send toggle
+│   │   ├── header_bar.py            # Status navigation header with compact orb
+│   │   ├── vision_panel.py          # Integrated camera HUD panel
+│   │   ├── diagnostics_dialog.py    # System microservices & hardware HUD modal
+│   │   └── visualizer_overlay.py    # Ambient audio-reactive overlay
 │   └── threads/
 │       ├── listen_thread.py         # QThread → Listen microservice
 │       ├── speak_thread.py          # QThread → Speak microservice
@@ -171,20 +178,23 @@ This will:
 
 ---
 
-## 🖥️ GUI Controls
+## 🖥️ Modern GUI & Controls
 
-| Button | Function |
-|--------|----------|
-| **👁️ Vision** | Toggle the live camera feed window on/off |
-| **🎙️ Listening** | Toggle wake word detection on/off (enabled by default) |
-| **🔇 Mute** | Toggle AI voice responses on/off |
+The upgraded desktop interface features a cyber-minimalist dark theme with real-time reactive animations:
 
-- **Chat Box** — Type messages directly or speak using the wake word
-- **Audio Visualizer** — Animated overlay showing microphone activity (pulsing circles during recording)
-- **Vision Window** — Live 640×480 feed with color-coded bounding boxes:
-  - 🟠 Orange / 🔵 Blue — Detected objects
-  - 🟢 Green — Recognized faces (with confidence %)
-  - 🔴 Red — Unknown/stranger faces
+| Control | Shortcut | Function |
+|---------|----------|----------|
+| **👁️ Vision HUD** | `Ctrl + V` | Toggle integrated live camera feed with YOLOv11 & Face Recognition (supports pop-out detachment) |
+| **🎙️ Listening** | `Ctrl + Space` | Toggle wake word detection ("Dhatri") & audio microphone loop |
+| **🔊 Voice Audio** | `Ctrl + M` | Toggle AI text-to-speech voice responses on/off |
+| **🧹 Clear Chat** | `Ctrl + L` | Reset conversation and restore the welcome screen |
+| **⚡ Diagnostics** | `F1` or `Ctrl + I` | Open hardware & microservices status HUD |
+
+### ✨ GUI Highlights
+- **Interactive AI Orb & Visualizer** — Multi-state 3D luminous orb that breathes during standby, pulses ripples to microphone volume during speech, rotates cyberpunk gyro-rings while processing, and radiates voice harmonics while speaking.
+- **Integrated Vision HUD Panel** — Live 640×480 feed docked right in the main window with YOLOv11 bounding boxes and face identification tags, plus a 1-click `⛶ Pop-out` button.
+- **Capsule Input Bar** — Floating capsule with `Enter` to send, `Shift + Enter` for newlines, auto-growing height, and a hands-free **Auto-Send** toggle.
+- **Chat Experience** — Gradient user bubbles, frosted glass AI responses with 1-click clipboard copy, animated typing indicator, and clickable suggestion chips.
 
 ---
 

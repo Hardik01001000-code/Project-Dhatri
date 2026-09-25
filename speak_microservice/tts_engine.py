@@ -31,9 +31,16 @@ from openvoice.api import ToneColorConverter
 from openvoice import se_extractor
 
 class TTSEngine:
-    def __init__(self, checkpoints_dir=None, cache_dir=None):
+    def __init__(self, checkpoints_dir=None, cache_dir=None, preload_voice=None):
         """
         Initialize the TTS Engine with OpenVoice V2 and MeloTTS.
+
+        Args:
+            checkpoints_dir: Path to OpenVoice V2 checkpoints. Defaults to ./checkpoints_v2.
+            cache_dir: Path for speaker embedding cache. Defaults to ./embeddings_cache.
+            preload_voice: Optional path to a reference audio file. If provided, the speaker
+                           embedding is extracted/loaded at init time instead of on first call,
+                           moving the cold-start penalty to boot time.
         """
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.checkpoints_dir = checkpoints_dir or os.path.join(base_dir, "checkpoints_v2")
@@ -48,7 +55,8 @@ class TTSEngine:
             self.device = "cuda:0" if torch.cuda.is_available() and torch.cuda.device_count() > 0 else "cpu"
         except Exception:
             self.device = "cpu"
-        print(f"Initializing TTSEngine on {self.device}...")
+        self._use_fp16 = self.device.startswith("cuda")
+        print(f"Initializing TTSEngine on {self.device} (FP16={self._use_fp16})...")
         
         # 1. Initialize MeloTTS for English base audio generation
         self.melo_tts = TTS(language='EN', device=self.device)
@@ -75,7 +83,8 @@ class TTSEngine:
         if hasattr(self.tone_color_converter, 'watermark_model') and self.tone_color_converter.watermark_model is not None:
             del self.tone_color_converter.watermark_model
             self.tone_color_converter.watermark_model = None
-            torch.cuda.empty_cache()
+            if self.device.startswith("cuda"):
+                torch.cuda.empty_cache()
         
         # 3. Load Base Speaker Embedding (Source SE)
         # In V2, base speaker embeddings are pre-computed .pth files
@@ -83,8 +92,26 @@ class TTSEngine:
         if not os.path.exists(base_se_path):
             raise FileNotFoundError(f"Base speaker embedding not found at {base_se_path}")
             
-        self.source_se = torch.load(base_se_path, map_location=self.device).to(self.device)
+        self.source_se = self._safe_torch_load(base_se_path, self.device)
+
+        # 4. Pre-warm the speaker embedding cache if a voice path was provided
+        if preload_voice and os.path.exists(preload_voice):
+            print(f"Pre-warming speaker embedding for: {preload_voice}")
+            try:
+                self.get_target_speaker_embedding(preload_voice)
+            except Exception as e:
+                print(f"Warning: Failed to pre-warm voice embedding: {e}")
+
         print("TTSEngine initialization complete.")
+
+    @staticmethod
+    def _safe_torch_load(path, device):
+        """Load a tensor checkpoint safely, compatible with PyTorch >=2.0 and older versions."""
+        try:
+            return torch.load(path, map_location=device, weights_only=True).to(device)
+        except TypeError:
+            # Older PyTorch versions don't support weights_only
+            return torch.load(path, map_location=device).to(device)
 
     def _get_file_hash(self, filepath):
         """Compute MD5 hash of a file for caching purposes."""
@@ -107,7 +134,7 @@ class TTSEngine:
         
         if os.path.exists(cache_path):
             print(f"Loading speaker embedding from cache: {cache_path}")
-            target_se = torch.load(cache_path, map_location=self.device).to(self.device)
+            target_se = self._safe_torch_load(cache_path, self.device)
             return target_se
             
         print(f"Extracting new speaker embedding for: {ref_audio_path}")
@@ -115,12 +142,19 @@ class TTSEngine:
         os.makedirs(target_dir, exist_ok=True)
         
         # Extract target_se using OpenVoice
-        target_se, audio_name = se_extractor.get_se(
-            ref_audio_path, 
-            self.tone_color_converter, 
-            target_dir=target_dir, 
-            vad=True
-        )
+        try:
+            target_se, audio_name = se_extractor.get_se(
+                ref_audio_path, 
+                self.tone_color_converter, 
+                target_dir=target_dir, 
+                vad=True
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to extract speaker embedding from '{ref_audio_path}'. "
+                f"The audio may be too short, corrupt, or in an unsupported format. "
+                f"Original error: {e}"
+            ) from e
         
         # target_se is typically a tensor
         # Move it to correct device and save to cache
@@ -137,31 +171,34 @@ class TTSEngine:
         """
         target_se = self.get_target_speaker_embedding(ref_audio_path)
         
-        # 1. Generate base audio using MeloTTS
-        # If output_path is None, it returns the numpy array
-        base_audio = self.melo_tts.tts_to_file(text, self.default_spkr, output_path=None, speed=speed)
-        
-        # 2. Write base_audio to memory buffer to pass to ToneColorConverter
-        buffer = io.BytesIO()
-        soundfile.write(buffer, base_audio, self.melo_tts.hps.data.sampling_rate, format='WAV')
-        buffer.seek(0)
-        
-        # 3. Convert Tone Color (Voice Cloning)
-        if output_path is not None:
-            print(f"Applying voice cloning to generate: {output_path}")
-            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        else:
-            print("Applying voice cloning in-memory for direct streaming...")
-            
-        # Run conversion inside torch.no_grad() to prevent VRAM memory leaks
+        # torch.no_grad() covers the entire pipeline to skip autograd bookkeeping.
+        # NOTE: autocast is only applied to the voice conversion step, NOT MeloTTS.
+        # MeloTTS uses rational quadratic spline transforms that are numerically
+        # unstable in FP16 (discriminant goes negative → assertion failure).
         with torch.no_grad():
-            output_audio = self.tone_color_converter.convert(
-                audio_src_path=buffer,
-                src_se=self.source_se,
-                tgt_se=target_se,
-                output_path=output_path,
-                message="@MyShell"
-            )
+            # 1. Generate base audio using MeloTTS (must stay FP32)
+            base_audio = self.melo_tts.tts_to_file(text, self.default_spkr, output_path=None, speed=speed)
+            
+            # 2. Write base_audio to memory buffer to pass to ToneColorConverter
+            buffer = io.BytesIO()
+            soundfile.write(buffer, base_audio, self.melo_tts.hps.data.sampling_rate, format='WAV')
+            buffer.seek(0)
+            
+            # 3. Convert Tone Color (Voice Cloning) — autocast for mixed-precision speedup
+            if output_path is not None:
+                print(f"Applying voice cloning to generate: {output_path}")
+                os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            else:
+                print("Applying voice cloning in-memory for direct streaming...")
+                
+            with torch.amp.autocast(device_type="cuda", enabled=self._use_fp16):
+                output_audio = self.tone_color_converter.convert(
+                    audio_src_path=buffer,
+                    src_se=self.source_se,
+                    tgt_se=target_se,
+                    output_path=output_path,
+                    message="@MyShell"
+                )
             
         if output_path is None:
             return self.tone_color_converter.hps.data.sampling_rate, output_audio
@@ -179,29 +216,32 @@ class TTSEngine:
         texts = self.melo_tts.split_sentences_into_pieces(text, self.melo_tts.language, quiet=True)
         sample_rate = self.tone_color_converter.hps.data.sampling_rate
         
-        for t in texts:
-            if not t.strip():
-                continue
+        # torch.no_grad() covers the loop. MeloTTS must run in FP32 (no autocast)
+        # to prevent assertion failure in rational_quadratic_spline.
+        with torch.no_grad():
+            for t in texts:
+                if not t.strip():
+                    continue
+                    
+                # 1. Generate base audio for the sentence (in FP32)
+                base_audio = self.melo_tts.tts_to_file(t, self.default_spkr, output_path=None, speed=speed)
                 
-            # 1. Generate base audio for the sentence
-            base_audio = self.melo_tts.tts_to_file(t, self.default_spkr, output_path=None, speed=speed)
-            
-            # 2. Write to memory buffer
-            buffer = io.BytesIO()
-            soundfile.write(buffer, base_audio, self.melo_tts.hps.data.sampling_rate, format='WAV')
-            buffer.seek(0)
-            
-            # 3. Clone voice in-memory without watermarking overhead
-            with torch.no_grad():
-                output_audio = self.tone_color_converter.convert(
-                    audio_src_path=buffer,
-                    src_se=self.source_se,
-                    tgt_se=target_se,
-                    output_path=None,
-                    message="@MyShell"
-                )
+                # 2. Write to memory buffer
+                buffer = io.BytesIO()
+                soundfile.write(buffer, base_audio, self.melo_tts.hps.data.sampling_rate, format='WAV')
+                buffer.seek(0)
                 
-            yield sample_rate, output_audio
+                # 3. Clone voice in-memory with mixed-precision autocast
+                with torch.amp.autocast(device_type="cuda", enabled=self._use_fp16):
+                    output_audio = self.tone_color_converter.convert(
+                        audio_src_path=buffer,
+                        src_se=self.source_se,
+                        tgt_se=target_se,
+                        output_path=None,
+                        message="@MyShell"
+                    )
+                    
+                yield sample_rate, output_audio
 
 if __name__ == "__main__":
     # Example usage / Test logic

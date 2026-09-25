@@ -1,70 +1,86 @@
+import math
 import numpy as np
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QPainter, QColor, QPen
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QPointF
+from PyQt6.QtGui import QPainter, QColor, QPen, QRadialGradient, QBrush
 
 class VisualizerOverlay(QWidget):
+    """
+    Subtle ambient audio-reactive overlay.
+    Renders sleek, modern energy ripples with non-intrusive alpha falloff
+    so chat text remains completely legible.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.rms = 0.0
         self.smoothed_rms = 0.0
-        self.state = "WAKEWORD" # WAKEWORD, RECORDING, PROCESSING
+        self.state = "WAKEWORD" # WAKEWORD, RECORDING, PROCESSING, SPEAKING
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update)
-        self.timer.start(33) # ~30fps update for smoother animation
-        self.phase = 0.0
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(16) # 60 FPS
+        self.time = 0.0
 
     @pyqtSlot(float)
-    def update_rms(self, rms):
-        self.rms = rms
+    def update_rms(self, rms: float):
+        self.rms = max(0.0, rms)
 
     @pyqtSlot(str)
-    def update_state(self, state):
-        self.state = state
+    def update_state(self, state: str):
+        self.state = state.upper()
+        self.update()
+
+    def _tick(self):
+        self.time += 0.04
+        # Smooth interpolation
+        target_rms = min(1.0, self.rms * 15.0)
+        self.smoothed_rms += (target_rms - self.smoothed_rms) * 0.25
+        if self.state in ["RECORDING", "PROCESSING", "SPEAKING"]:
+            self.update()
 
     def paintEvent(self, event):
-        if self.state == "WAKEWORD":
+        if self.state == "WAKEWORD" or self.state == "STANDBY":
             return
             
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        center = self.rect().center()
-        base_radius = 40
+        center = QPointF(self.rect().center())
         
         if self.state == "PROCESSING":
-            self.phase += 0.15 # Smoother pulse phase
-            pulse = (np.sin(self.phase) + 1) / 2
-            # Pastel Purple breathing
-            color = QColor(203, 166, 247, int(100 + 100 * pulse)) # Mauve
-            painter.setBrush(color)
-            # Glowing outline
-            glow = QColor(203, 166, 247, int(50 + 50 * pulse))
-            painter.setPen(QPen(glow, 6))
-            radius = base_radius + int(10 * pulse)
-            painter.drawEllipse(center, radius, radius)
+            # Subtle futuristic rotating orbit ring
+            radius = 50.0
+            pulse = (math.sin(self.time * 4.0) + 1.0) / 2.0
+            
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            pen = QPen(QColor(139, 92, 246, int(40 + 40 * pulse)), 2)
+            painter.setPen(pen)
+            painter.drawEllipse(center, radius + pulse * 10, radius + pulse * 10)
             return
 
-        # RECORDING State
-        # Smooth interpolation for bounciness
-        target_rms = min(1.0, self.rms * 15)
-        self.smoothed_rms += (target_rms - self.smoothed_rms) * 0.3 # Easing
-        
-        dynamic_radius = base_radius + int(self.smoothed_rms * 80)
-        
-        # Outer rings (Glowing neon pastel)
-        painter.setPen(QPen(QColor(137, 180, 250, 100), 3)) # Soft Blue
-        painter.drawEllipse(center, dynamic_radius, dynamic_radius)
-        
-        painter.setPen(QPen(QColor(245, 194, 231, 80), 5)) # Soft Pink
-        painter.drawEllipse(center, dynamic_radius + 15, dynamic_radius + 15)
-        
-        painter.setPen(QPen(QColor(166, 227, 161, 40), 8)) # Mint Green
-        painter.drawEllipse(center, dynamic_radius + 30, dynamic_radius + 30)
-        
-        # Base circle
-        painter.setBrush(QColor(137, 180, 250, 220))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(center, base_radius, base_radius)
+        if self.state == "RECORDING":
+            # Dynamic audio ripples with sleek cyber colors
+            base_r = 45.0
+            dynamic_r = base_r + self.smoothed_rms * 90.0
+            
+            # Ambient radial glow behind ripples
+            glow = QRadialGradient(center, dynamic_r * 1.5)
+            glow.setColorAt(0.0, QColor(244, 63, 94, int(20 + self.smoothed_rms * 40)))
+            glow.setColorAt(1.0, QColor(0, 0, 0, 0))
+            painter.setBrush(QBrush(glow))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(center, dynamic_r * 1.5, dynamic_r * 1.5)
+            
+            # Outer rings
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(244, 63, 94, 90), 2))
+            painter.drawEllipse(center, dynamic_r, dynamic_r)
+            
+            painter.setPen(QPen(QColor(0, 240, 255, 60), 1.5))
+            painter.drawEllipse(center, dynamic_r + 20, dynamic_r + 20)
+            
+            # Core pulse
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(244, 63, 94, int(60 + self.smoothed_rms * 80)))
+            painter.drawEllipse(center, base_r, base_r)

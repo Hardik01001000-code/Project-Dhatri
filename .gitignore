@@ -9,7 +9,6 @@ __pycache__/
 htmlcov/
 
 # AI and local system caches
-brain/
 embeddings_cache/
 
 # Large Model weights and checkpoints
